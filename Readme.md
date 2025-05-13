@@ -1,13 +1,15 @@
 ## `__cnew__` Hook
-A new way of hacking in your own metaclass into Cython during the `__new__` phase of the code in order to provie a safe and effective way of using new 
-And create new optimized structures for Cython to use.
+A new way of hacking in your own metaclass types into Cython during the `__new__` phase of the code in order to provie a safe 
+and effective way of using new and to help create new wave of optimized structures for Cython to use and gain access to.
 
 ## How Would I use `__cnew__`?
 The way you would want to use this NewType feature is if you wanted to make something like a Dataclass Structure or another Low level type that 
-needs access to multiple C Level Attributes that you can't get from a non C Extension Type.
+needs access to multiple C Level Attributes that you can't get from a normal Python Type. The Truth is Cython Limits you to using anything but 
+`__new__` But there's cases where `__new__` is better than `__cinit__` unlike `__cinit__` you control how the object is created but there is a 
+catch you now control it so it's your responsibility to ensure the object is being created correctly.
 
-My Current Agenda is making modern dataclasses run faster by making Cython Able to handle metaclasses because maintaining source code
-in Cython is Better than maintaining it in C.
+My Current Agenda is providing users tooling to help make modern dataclasses run faster by making Cython Able to handle metaclasses 
+because maintaining source code in Cython is Better than maintaining it in C.
 
 Currently this is how we plan to make the Cython API Work. This example is held subject to change.
 ```cython
@@ -43,9 +45,11 @@ cdef class HeapStructMeta(NewType):
         return hs 
 
     # Because our hook has zero effect on __new__ itself or the tp_new slot
-    # we are free to continue using __cinit__ as we wish 
-    def __cinit__(self, int order, int idk):
-        ...
+    # we are free to continue using __cinit__ as we wish as long as we pass in the varaibles used above and we can add new ones after it.
+    # NewType's Goal is to trick the Cython Compiler into enabling what we wished
+    # for so that newly unoptimized barriers can be broken. 
+    def __cinit__(self, str name, tuple bases, dict namespace, int order, int idk):
+        ... 
     
 ```
 
@@ -76,6 +80,20 @@ Currently the only known way to do so is with our own C Extension and then someh
 I have a fork of the Current Cython Codespace if this plan goes poorly and I should be able to find a way to add 
 it to the compiler itself if all else fails.
 
+## Other Feautures
+- The Entire Source code is UnLicensed and you are as free as a bird to use it however you want in fact
+  I encourage you to either help improve this hooking library or to try implementing your own or borrowing
+  the source code in the C File.
+
+## Important Notes
+- Remeber to use `__cnew__` for accessing & manipulating namespace dicitionaries & base tuples approperately and to use `__cinit__` for initializing other keyword arguments.
+this way Cython's Rules on how `__cinit__` is to be used remains obyed.
+- __NewType__ is meant to serve as a hook to a current barrier in Cython's codespace.
+- __NewType__ Plans to be the future and we hope that everybody takes intrest in using it until
+  Cython brings about support for it's own version of `__cnew__` after that this library plans to
+  serve as backwards compatability.
+- If Attrs could spark the invention of the python dataclass library we can do something simillar.
+ 
 ## My Motives
 - [This video](https://www.youtube.com/watch?v=QV4uHSpl-Do) where I present why I am doing all of this and what it's purpose will end up being for.
 
