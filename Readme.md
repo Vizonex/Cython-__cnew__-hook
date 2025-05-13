@@ -93,7 +93,13 @@ this way Cython's Rules on how `__cinit__` is to be used remains obyed.
   Cython brings about support for it's own version of `__cnew__` after that this library plans to
   serve as backwards compatability.
 - If Attrs could spark the invention of the python dataclass library we can do something simillar.
- 
+
+## TODOS
+-[ ] Numpy Styled approch to working with Cython so that the extension can inject itself in without fail.
+-[ ] A Tool or linter that can easily check for possible misbehaviors to prevent bad things from happening.
+-[ ] A Pypi Realease would be a nice cherry on top.
+-[ ] Testing that this apporch actually works and doesn't fail (Tested it in python however and it moves surprisingly smoothly)
+
 ## My Motives
 - [This video](https://www.youtube.com/watch?v=QV4uHSpl-Do) where I present why I am doing all of this and what it's purpose will end up being for.
 
