@@ -43,7 +43,9 @@ static PyObject* NewTypeProxy_CreateObject(PyObject* newtypeproxy, PyObject* arg
     return PyType_Type.tp_new(((NewTypeProxyObject*)(newtypeproxy))->ptype, args, kwargs);
 }
 
-
+PyObject* NewTypeProxy_CAPI_CreateObject(NewTypeProxyObject* newtypeproxy, PyObject* args, PyObject* kwargs){
+    return PyType_Type.tp_new(newtypeproxy->ptype, args, kwargs);
+}
 
 
 

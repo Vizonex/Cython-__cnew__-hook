@@ -110,7 +110,7 @@ static PyTypeObject NewTypeProxy_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "newtype.newtype.NewTypeProxy",
     .tp_doc =  PyDoc_STR("NewTypeProxy()\n--\nA Capsule Type to store PyTypeObjects for finalization."),
-    .tp_new = NewTypeProxy_New,
+    .tp_new = _NewTypeProxy_new,
     .tp_basicsize = sizeof(NewTypeProxyObject),
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_methods = newtypeproxy_methods
@@ -215,22 +215,41 @@ PyInit_newtype(void)
     module = PyModule_Create(&newtype_module);
     Py_INCREF(&NewType_Type);
     Py_INCREF(&NewTypeProxy_Type);
-    
+
     // Setup our new hackable Cython Type
     if (PyModule_AddObject(module, "NewType", (PyObject*)(&NewType_Type)) < 0){
+        Py_DECREF(module);
         return NULL;
     }
+
     if (PyModule_AddObject(module, "NewTypeProxy", (PyObject*)(&NewTypeProxy_Type)) < 0){
+        Py_DECREF(module);
         return NULL;
     }
 
     // Setup author of the project and version information
     if (PyModule_AddObject(module, "__author__", PyUnicode_FromString(NEWTYPE_AUTHOR)) < 0){
+        Py_DECREF(module);
         return NULL;
     }
+
     if (PyModule_AddObject(module, "__version__", PyUnicode_FromString(NEWTYPE_VERSION)) < 0){
+        Py_DECREF(module);
         return NULL;
     }
+
+    // Now for the real treat
+    PyNewType_CAPI* NewTypeCAPI;
+    NewTypeCAPI->NewType = &NewType_Type;
+    NewTypeCAPI->NewTypeProxy = &NewTypeProxy_Type;
+
+    PyObject* c_api = PyCapsule_New(NewTypeCAPI, PyNewType_CAPSULE_NAME, NULL);
+    
+    if (PyModule_AddObject(module, "newtype_CAPI", c_api) < 0){
+        Py_DECREF(module);
+        return NULL;
+    }
+
     return module;
 }
 
