@@ -2,6 +2,7 @@
 #define __NEWTYPE_H__
 
 #include "Python.h"
+#include "newtypeproxy.h"
 #include "structmember.h"
 
 #define NEWTYPE_AUTHOR "Vizonex"
@@ -9,24 +10,22 @@
 
 static PyTypeObject NewType_Type;
 
-
 typedef struct _newtypeobject
 {
-    PyHeapTypeObject* nt_base;
-    
+    PyHeapTypeObject* base;
 } NewTypeObject;
 
 
-/// @brief This is the method that we wish to Hook, 
-/// This is only here to prevent crashing, however you could simply call 
-/// this function when you're finished modifying the data before type-creation begins
-/// @param args arguments for that type
-/// @param kw keywords
-/// @return The New Class Made
-PyObject *NewTypeObject_CNew(PyTypeObject* type, PyObject *args, PyObject *kw)
-{
-    return PyType_Type.tp_new(type, args, kw);
-}
+
+
+/// @brief The __new__ method for cython to scretly hook onto.
+/// @param type 
+/// @param args 
+/// @param kwargs 
+/// @return A New Type Object if all was deemed as successful otherwise NULL 
+/// is returned which then prompts python to raise an exception.
+PyObject* NewTypeObject_New(PyTypeObject* type, PyObject* args, PyObject* kwargs);
+
 
 
 

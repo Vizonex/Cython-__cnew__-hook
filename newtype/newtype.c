@@ -1,22 +1,16 @@
-#define PY_SSIZE_T_CLEAN
-#include "newtype.h"
 #include "Python.h"
-#include "structmember.h"
+#include "newtypeproxy.h"
+#include "newtype.h"
 
-
-
-// TODO: Move CAPIs to a header file for further use with cython because that 
-// what we wrote this module for in the first place.
 
 typedef struct {
     PyObject* author;
     PyObject* version;
     PyObject* NewType;
+    PyObject* NewTypeProxy;
 } NewTypeModuleState;
 
-static PyTypeObject NewType_Type;
 static struct PyModuleDef newtype_module;
-
 
 static NewTypeModuleState* NewTypeModule_GetState(PyObject* module){
     return (NewTypeModuleState*)PyModule_GetState(module);
@@ -29,54 +23,97 @@ static NewTypeModuleState* NewTypeModule_GetGlobalState(){
 }
 
 
-// ********************************************************
-// * NewType Methods
-// ********************************************************
+// *********************************************************************
+// * NewType Methods                                                   *
+// *********************************************************************
 
+PyDoc_STRVAR(NewTypeObject_Doc, 
+    "NewType(o:object) -> NewType;\n"\
+    "NewType(name: str, bases: tuple[type, ...], dict: dict[str, Any], /, **kwds: Any) -> NewType\n"
+    "--\n"\
+    "A Subclass of Python's type object, Creates a New Object or Metaclass Object by creating Cython Compatable Hook for __new__ called __cnew__"
+);
 
-// vectorcall Type Meant to Provide a __cnew__ hook if none are defined.
-
-PyObject *NewTypeObject_CNew_impl(PyObject *self, PyObject* args, PyObject* kwargs)
-{       
+PyObject* NewTypeObject_New(PyTypeObject* type, PyObject* args, PyObject* kwargs){
     
-    return NewTypeObject_CNew(Py_TYPE(self), args, kwargs);
-}
-
-
-
-/// @brief The Hook to tp_new to hook to cython so that our own methods can 
-/// be hacked in as a result As a warning please remember that your __cnew__ 
-/// function needs to return the correct object otherwise you could face 
-/// deadly errors or other consequences down the line.
-/// @param t 
-/// @param args 
-/// @param kw 
-/// @return Our newly created type of object for Cython to manipulate later inside __cinit__
-
-static PyObject* NewTypeObject_New(PyTypeObject *type, PyObject *args, PyObject *kwargs){
+    // if were just NewTypeObject alone we need to bail...
     if (type->tp_base == &PyType_Type){
-        return NewTypeObject_CNew(type, args, kwargs);
+        // Were not a subclass no need to call for a hook.
+        return PyType_Type.tp_new(type, args, kwargs);
     }
-    // Proxy off PyTypeObject so that it has something...
-    printf("_PyObject_New");
-    PyObject* cls = _PyObject_New(type);
-    cls->ob_type = type;
-    printf("PyObject_GetAttrString");
-    PyObject* cnew = PyObject_GetAttrString(type, "__cnew__");
-    PyObject* new_args = PyTuple_New(PyTuple_GET_SIZE(args));
 
-    for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(args); i++){
-        PyTuple_SET_ITEM(new_args, i + 1, PyTuple_GET_ITEM(args, i));
+    // Assume at this point that __slots__ is not officially here yet...
+    // So were free to use a safer method to get what we wish...
+    // GetAttrString can be unpredictable sometimes...
+    PyObject* __cnew__ = PyDict_GetItemString(type->tp_dict, "__cnew__");
+    if (__cnew__ == NULL) return NULL;
+
+    // Create our Type Proxy So that Python doesn't assume we screwed something up.
+    PyObject* proxy = NewTypeProxy_New(type);
+    if (proxy == NULL) return NULL;
+    // Make a new ref for proxy before adding it to our new argument list
+    Py_INCREF(proxy);
+
+    // Reorganize Positional Arguments so that type gets installed properly.
+    Py_ssize_t nargs = PyTuple_GET_SIZE(args);
+    PyObject* arg_list = PyList_New(nargs + 1);
+    if (arg_list == NULL){
+        Py_CLEAR(proxy);
+        return NULL;
+    };
+    
+    PyList_SET_ITEM(arg_list, 0, proxy);
+
+    for (Py_ssize_t i = 0; i < nargs; i++ ){
+        PyObject* arg = PyTuple_GET_ITEM(args, i);
+        if (arg == NULL) return NULL;
+        PyList_SET_ITEM(arg_list, i + 1, arg);
     }
-    puts("RUNNING!\n");
-    PyObject* n = PyObject_Call(cnew, new_args, kwargs);
-    Py_CLEAR(new_args);
-    if (n == NULL){
-        puts("DID NOT SUCCEED! :(");
+    PyObject* new_args = PyList_AsTuple(arg_list);
+
+    if (new_args == NULL) {
+        Py_CLEAR(arg_list);
+        Py_CLEAR(proxy);
         return NULL;
     }
-    puts("SUCCESS!");
-    return n;
+    // Up Refcount by 1 incase were doing anything 
+    // crazy with our new positional arguments
+    Py_INCREF(new_args);
+    
+    // Delete Arglist we're done moving the NewType Proxy where we need it to be stored.
+    Py_CLEAR(arg_list);
+
+    // We're ready to Call __cnew__
+    PyObject* new_type = PyObject_Call(__cnew__, new_args, kwargs);
+    
+    // Were done with Our Proxy and new_args now...
+    Py_CLEAR(new_args);
+    Py_CLEAR(proxy);
+    // Cleanup is over so check if were failed.
+    if (new_type == NULL) return NULL;
+
+    return new_type;
+} 
+
+
+
+/*******************
+ * NewProxy Type   *
+ *******************/
+
+static struct PyMethodDef newtypeproxy_methods[] = {
+    NEWTYPEPROXY_CREATE_OBJECT_METHODEF,
+    {NULL}
+};
+
+static PyTypeObject NewTypeProxy_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "newtype.newtype.NewTypeProxy",
+    .tp_doc =  PyDoc_STR("NewTypeProxy()\n--\nA Capsule Type to store PyTypeObjects for finalization."),
+    .tp_new = NewTypeProxy_New,
+    .tp_basicsize = sizeof(NewTypeProxyObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_methods = newtypeproxy_methods
 };
 
 
@@ -110,32 +147,23 @@ PyDoc_STRVAR(NewType__doc__,
 " it as standard partice."
 );
 
-static struct PyMethodDef newtype_methods[] = {
-    {"__cnew__", (PyCFunction)NewTypeObject_CNew_impl, METH_KEYWORDS | METH_VARARGS,
-        PyDoc_STR("NewType.__cnew__(cls, object) -> NewType\n"
-            "NewType.__cnew__(cls, name:str, bases:tuple[type, ...], class_dict:dict, **kwds) -> NewType\n"
-            "--\n"
-            "A Hook to For Cython __new__ calls to be performed from. Secifically Compile-time hooks"
-        )
-    },
-    {0}
-};
-
 
 static PyTypeObject NewType_Type = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "newtype.newtype.NewType",
     .tp_doc = NewType__doc__,
+    .tp_new = NewTypeObject_New,
     .tp_basicsize = sizeof(NewTypeObject),
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_TYPE_SUBCLASS | Py_TPFLAGS_BASETYPE,
-    .tp_new = NewTypeObject_New,
-    .tp_methods = newtype_methods,
 };
+
+
 
 static int newtype_traverse(PyObject* m, visitproc visit, void* arg){
     NewTypeModuleState* st = NewTypeModule_GetState(m);
     Py_VISIT(st->author);
     Py_VISIT(st->NewType);
+    Py_VISIT(st->NewTypeProxy);
     Py_VISIT(st->version);
     return 0;
 }
@@ -144,6 +172,7 @@ static int newtype_clear(PyObject* m){
     NewTypeModuleState* st = NewTypeModule_GetState(m);
     Py_CLEAR(st->author);
     Py_CLEAR(st->NewType);
+    Py_CLEAR(st->NewTypeProxy);
     Py_CLEAR(st->version);
     return 0;
 }
@@ -161,6 +190,9 @@ static struct PyModuleDef newtype_module = {
     .m_free = (freefunc)newtype_free
 };
 
+
+
+
 PyMODINIT_FUNC 
 PyInit_newtype(void) 
 {
@@ -175,12 +207,23 @@ PyInit_newtype(void)
     if (PyType_Ready(&NewType_Type) < 0){
         return NULL;
     }
+    
+    if (PyType_Ready(&NewTypeProxy_Type) < 0){
+        return NULL;
+    }
+
     module = PyModule_Create(&newtype_module);
     Py_INCREF(&NewType_Type);
+    Py_INCREF(&NewTypeProxy_Type);
+    
     // Setup our new hackable Cython Type
     if (PyModule_AddObject(module, "NewType", (PyObject*)(&NewType_Type)) < 0){
         return NULL;
     }
+    if (PyModule_AddObject(module, "NewTypeProxy", (PyObject*)(&NewTypeProxy_Type)) < 0){
+        return NULL;
+    }
+
     // Setup author of the project and version information
     if (PyModule_AddObject(module, "__author__", PyUnicode_FromString(NEWTYPE_AUTHOR)) < 0){
         return NULL;
@@ -190,5 +233,6 @@ PyInit_newtype(void)
     }
     return module;
 }
+
 
 
